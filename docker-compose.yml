@@ -1,5 +1,11 @@
 version: '3.8'
 
+networks:
+  sts-frontend:
+    driver: bridge
+  sts-backend:
+    driver: bridge
+
 services:
   # 0. Container เตรียมไฟล์คอนฟิกเริ่มต้นของ Headscale
   headscale-init:
@@ -7,94 +13,91 @@ services:
     container_name: headscale_init
     volumes:
       - ./headscale/config:/etc/headscale
+      - ./headscale/config/config.headscale.yaml:/tmp/config.headscale.yaml:ro
     command: >
       sh -c "
       if [ ! -f /etc/headscale/config.yaml ]; then
-        echo 'Downloading default Headscale config...';
-        wget -O /etc/headscale/config.yaml https://raw.githubusercontent.com/juanfont/headscale/main/config-example.yaml;
-        sed -i 's|server_url: http://127.0.0.1:8080|server_url: http://localhost:8080|g' /etc/headscale/config.yaml;
-        sed -i 's|db_type: sqlite3|db_type: postgres|g' /etc/headscale/config.yaml;
-        sed -i 's|db_host: 127.0.0.1|db_host: postgres_uat|g' /etc/headscale/config.yaml;
-        sed -i 's|db_name: headscale|db_name: STS|g' /etc/headscale/config.yaml;
-        sed -i 's|db_user: headscale|db_user: userSTS|g' /etc/headscale/config.yaml;
-        sed -i 's|db_pass: password|db_pass: S@mart@2024|g' /etc/headscale/config.yaml;
+        echo 'Copying pre-configured Headscale config...';
+        cp /tmp/config.headscale.yaml /etc/headscale/config.yaml;
       else
         echo 'Config file already exists.';
       fi
       "
+    networks:
+      - sts-backend
 
-  # 1. Headscale Server Container (ผูกไว้กับวง UAT)
+  # 1. Headscale Server Container
   headscale:
     image: headscale/headscale:latest
     container_name: headscale
     restart: always
     ports:
-      - "8080:8080"
+      - "${HS_PORT:-8080}:8080"
     volumes:
       - ./headscale/config:/etc/headscale
       - ./headscale/data:/var/lib/headscale
-    environment:
-      - HEADSCALE_DB_TYPE=postgres
-      - HEADSCALE_DB_HOST=postgres_uat
-      - HEADSCALE_DB_PORT=5432
-      - HEADSCALE_DB_NAME=STS
-      - HEADSCALE_DB_USER=userSTS
-      - HEADSCALE_DB_PASS=S@mart@2024
     command: headscale serve
     depends_on:
       headscale-init:
         condition: service_completed_successfully
       postgres_uat:
         condition: service_healthy
+    networks:
+      - sts-frontend
+      - sts-backend
 
-  # 2. คอนเทนเนอร์ที่ 1: PostgreSQL UAT (Port ด้านนอก 5431)
+  # 2. PostgreSQL UAT (Port ด้านนอก 5431)
   postgres_uat:
     image: postgres:15-alpine
     container_name: postgres_uat
     restart: always
     ports:
-      - "5431:5432"
+      - "${PG_UAT_PORT:-5431}:5432"
     environment:
-      POSTGRES_DB: STS
-      POSTGRES_USER: userSTS
-      POSTGRES_PASSWORD: S@mart@2024
+      POSTGRES_DB: ${POSTGRES_DB:-STS}
+      POSTGRES_USER: ${POSTGRES_USER:-userSTS}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-S@mart@2024}
     volumes:
       - postgres_uat_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U userSTS -d STS"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-userSTS} -d ${POSTGRES_DB:-STS}"]
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - sts-backend
 
-  # 3. คอนเทนเนอร์ที่ 2: PostgreSQL MASTER (Port ด้านนอก 5432)
+  # 3. PostgreSQL MASTER (Port ด้านนอก 5432)
   postgres_master:
     image: postgres:15-alpine
     container_name: postgres_master
     restart: always
     ports:
-      - "5432:5432"
+      - "${PG_MASTER_PORT:-5432}:5432"
     environment:
-      POSTGRES_DB: STS
-      POSTGRES_USER: userSTS
-      POSTGRES_PASSWORD: S@mart@2024
+      POSTGRES_DB: ${POSTGRES_DB:-STS}
+      POSTGRES_USER: ${POSTGRES_USER:-userSTS}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-S@mart@2024}
     volumes:
       - postgres_master_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U userSTS -d STS"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-userSTS} -d ${POSTGRES_DB:-STS}"]
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - sts-backend
 
-  # 4. pgAdmin Container (เชื่อมเข้าหาฐานข้อมูลทั้ง 2 ตู้อัตโนมัติ)
+  # 4. pgAdmin Container
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: pgadmin_web
     restart: always
     ports:
-      - "5050:80"
+      - "${PGADMIN_PORT:-5050}:80"
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@yourdomain.com
-      PGADMIN_DEFAULT_PASSWORD: PgAdminSecurePass123!
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@yourdomain.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-PgAdminSecurePass123!}
     volumes:
       - pgadmin_data:/var/lib/pgadmin
       - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
@@ -102,18 +105,34 @@ services:
     depends_on:
       - postgres_uat
       - postgres_master
+    networks:
+      - sts-frontend
+      - sts-backend
 
-  # 5. Keycloak Container (ระบบระบบ Auth กลางจำลอง)
+  # 5. Keycloak Container (ใช้ PostgreSQL MASTER เป็น backend)
   keycloak_auth:
     image: quay.io/keycloak/keycloak:22.0
     container_name: keycloak_auth
     restart: always
     ports:
-      - "8081:8080"
+      - "${KEYCLOAK_PORT:-8081}:8080"
     environment:
-      - KEYCLOAK_ADMIN=admin
-      - KEYCLOAK_ADMIN_PASSWORD=KeycloakSecurePass123!
-    command: start-dev
+      KC_DB: postgres
+      KC_DB_URL_HOST: postgres_master
+      KC_DB_URL_DATABASE: STS
+      KC_DB_USERNAME: ${POSTGRES_USER:-userSTS}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-S@mart@2024}
+      KC_HOSTNAME: localhost
+      KC_HTTP_ENABLED: "true"
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN_USER:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-KeycloakSecurePass123!}
+    command: start --optimized
+    depends_on:
+      postgres_master:
+        condition: service_healthy
+    networks:
+      - sts-frontend
+      - sts-backend
 
 volumes:
   postgres_uat_data:
