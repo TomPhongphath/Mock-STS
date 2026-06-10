@@ -129,7 +129,44 @@ services:
     networks:
       - sts-backend
 
+  # ==========================================
+  # Jenkins — CI/CD Server
+  # ==========================================
+  jenkins:
+    image: jenkins/jenkins:lts-jdk17
+    container_name: jenkins
+    restart: always
+    ports:
+      - "0.0.0.0:${JENKINS_PORT:-9090}:8080"
+    environment:
+      JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
+      JENKINS_OPTS: "--prefix=/jenkins"
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      PG_UAT_HOST: postgres_uat
+      PG_UAT_PORT: 5432
+      PG_UAT_NAME: STS
+      PG_UAT_USER: userSTS
+      PG_UAT_PASS: ${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
+      PG_MASTER_HOST: postgres_master
+      PG_MASTER_PORT: 5432
+      PG_MASTER_NAME: STS
+      PG_MASTER_USER: userSTS
+      PG_MASTER_PASS: ${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
+    volumes:
+      - jenkins_data:/var/jenkins_home
+      - ./jenkins/init.groovy.d:/usr/share/jenkins/ref/init.groovy.d:ro
+      - ./jenkins/jobs:/opt/jenkins-job-templates:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${PWD}:/workspace
+    user: root
+    depends_on:
+      - postgres_uat
+      - postgres_master
+    networks:
+      - sts-backend
+
 volumes:
   postgres_uat_data:
   postgres_master_data:
   pgadmin_data:
+  jenkins_data:
