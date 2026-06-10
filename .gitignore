@@ -12,3 +12,7 @@
 .env
 .DS_Store
 Thumbs.db
+
+# Jenkins cloned repos (ignore all service repo dirs)
+/STS-*/
+/SCS-*/

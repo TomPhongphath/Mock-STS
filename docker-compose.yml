@@ -140,7 +140,7 @@ services:
       - "0.0.0.0:${JENKINS_PORT:-9090}:8080"
     environment:
       JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
-      JENKINS_OPTS: "--prefix=/jenkins"
+      JENKINS_OPTS: "--prefix="
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       PG_UAT_HOST: postgres_uat
       PG_UAT_PORT: 5432

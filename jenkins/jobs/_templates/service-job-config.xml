@@ -32,7 +32,7 @@
   <blockBuildWhenUpstreamBuilding>false</blockBuildWhenUpstreamBuilding>
   <triggers>
     <hudson.triggers.TimerTrigger>
-      <spec>H/2 * * * *</spec>
+      <spec>H/5 * * * *</spec>
     </hudson.triggers.TimerTrigger>
   </triggers>
   <concurrentBuild>false</concurrentBuild>
@@ -50,6 +50,8 @@ TARGET_BRANCH="__TARGET_BRANCH__"
 TARGET_SERVICE="__TARGET_SERVICE__"
 SERVICE_PORT="__SERVICE_PORT__"
 HAS_COMPOSE_SERVICE="__HAS_COMPOSE_SERVICE__"
+COMMON_REPO="STS-Common"
+COMMON_BRANCH="MASTER-MOCK"
 COMPOSE_FILES="-f docker-compose.yml"
 COMPOSE_PROJECT_NAME="mock-sts"
 STATE_DIR="/var/jenkins_home/service-state"
@@ -155,8 +157,48 @@ if needs_repo_lock; then
   trap release_repo_lock EXIT
 fi
 
+# ============================================
+# Clone STS-Common (shared library) first
+# ============================================
+ensure_common_repo() {
+  local repo_dir="${COMMON_REPO}"
+  local repo_owner="TomPhongphath"
+  local branch="${COMMON_BRANCH}"
+
+  if [ -d "${repo_dir}/.git" ]; then
+    git -C "${repo_dir}" fetch origin "${branch}" 2>/dev/null || return 0
+    git -C "${repo_dir}" checkout -B "${branch}" "origin/${branch}" 2>/dev/null || return 0
+    echo "STS-Common synced to $(git -C ${repo_dir} rev-parse --short HEAD)"
+    return 0
+  fi
+
+  if [ -d "${repo_dir}" ] &amp;&amp; [ -n "$(ls -A "${repo_dir}" 2>/dev/null)" ]; then
+    echo "WARN: ${repo_dir} exists but is not a git repo; skipping common clone."
+    return 0
+  fi
+
+  if [ -d "${repo_dir}" ]; then
+    rmdir "${repo_dir}" 2>/dev/null
+  fi
+
+  if [ -z "${GITHUB_TOKEN:-}" ] || [ "${GITHUB_TOKEN}" = "your_token_here" ]; then
+    echo "WARN: GITHUB_TOKEN missing; cannot clone ${COMMON_REPO}."
+    return 0
+  fi
+
+  local remote_url="https://${GITHUB_TOKEN}@github.com/${repo_owner}/${repo_dir}.git"
+  if ! git ls-remote --exit-code --heads "${remote_url}" "${branch}" &gt;/dev/null 2&gt;&amp;1; then
+    echo "WARN: Branch ${branch} not found for ${COMMON_REPO}; skipping."
+    return 0
+  fi
+
+  git clone --branch "${branch}" --single-branch "${remote_url}" "${repo_dir}"
+  echo "Cloned ${COMMON_REPO} (${branch}) as shared dependency."
+}
+
 case "${ACTION}" in
   auto)
+    ensure_common_repo
     ensure_repo_for_action
     mkdir -p "${STATE_DIR}"
     COMMIT="$(current_commit)"
@@ -175,10 +217,12 @@ case "${ACTION}" in
     fi
     ;;
   sync)
+    ensure_common_repo
     ensure_repo_for_action
     echo "Source sync complete for ${REPO_DIR}."
     ;;
   ci)
+    ensure_common_repo
     ensure_repo_for_action
     if [ "${HAS_COMPOSE_SERVICE}" = "true" ]; then
       compose build ${TARGET_SERVICE}
@@ -188,6 +232,7 @@ case "${ACTION}" in
     fi
     ;;
   start)
+    ensure_common_repo
     ensure_repo_for_action
     if [ "${HAS_COMPOSE_SERVICE}" = "true" ]; then
       deploy_target
