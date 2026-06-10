@@ -159,6 +159,13 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${PWD}:/workspace
     user: root
+    entrypoint: >
+      sh -c "
+      apt-get update -qq && apt-get install -y -qq docker.io docker-compose-v2 2>/dev/null;
+      mkdir -p /usr/local/lib/docker/cli-plugins 2>/dev/null;
+      ln -sf /usr/libexec/docker/cli-plugins/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose 2>/dev/null;
+      exec /usr/bin/tini -- /usr/local/bin/jenkins.sh
+      "
     depends_on:
       - postgres_uat
       - postgres_master
