@@ -1,0 +1,11 @@
+# สกัดกั้นโฟลเดอร์ข้อมูลภายในของ Headscale
+/headscale/data/
+*.sqlite
+
+# สกัดกั้นไฟล์รหัสผ่าน pgpass เพื่อความปลอดภัยสูงสุดบน GitHub
+/pgadmin/pgpass
+
+# OS & Environment Files
+.env
+.DS_Store
+Thumbs.db
