@@ -4,9 +4,9 @@ networks:
 
 secrets:
   postgres_password:
-    file: ./secrets/postgres_password.txt
+    file: secrets/postgres_password.txt
   pgadmin_password:
-    file: ./secrets/pgadmin_password.txt
+    file: secrets/pgadmin_password.txt
 
 services:
   # ==========================================
@@ -18,13 +18,14 @@ services:
     volumes:
       - ./headscale/config:/etc/headscale
       - ./headscale/config/config.headscale.yaml:/tmp/config.headscale.yaml:ro
-      - ./secrets/postgres_password.txt:/tmp/postgres_password.txt:ro
+    secrets:
+      - postgres_password
     command: >
       sh -c "
       if [ ! -f /etc/headscale/config.yaml ]; then
         echo 'Init Headscale config...';
         cp /tmp/config.headscale.yaml /etc/headscale/config.yaml;
-        PGPASS=$$(cat /tmp/postgres_password.txt);
+        PGPASS=$$(cat /run/secrets/postgres_password);
         sed -i s/__PASSWORD_PLACEHOLDER__/$$PGPASS/g /etc/headscale/config.yaml;
         echo 'Password injected successfully.';
       else
@@ -67,7 +68,7 @@ services:
     environment:
       POSTGRES_DB: STS
       POSTGRES_USER: userSTS
-      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_PASSWORD: 058c55af16a8410eb1eb5e94f79d073be235
     volumes:
       - postgres_uat_data:/var/lib/postgresql/data
     healthcheck:
@@ -92,7 +93,7 @@ services:
     environment:
       POSTGRES_DB: STS
       POSTGRES_USER: userSTS
-      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_PASSWORD: 058c55af16a8410eb1eb5e94f79d073be235
     volumes:
       - postgres_master_data:/var/lib/postgresql/data
     healthcheck:
@@ -115,8 +116,8 @@ services:
     ports:
       - "${PGADMIN_BIND_IP:-0.0.0.0}:${PGADMIN_PORT:-5050}:80"
     environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@yourdomain.com}
-      PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/pgadmin_password
+      PGADMIN_DEFAULT_EMAIL: admin@yourdomain.com
+      PGADMIN_DEFAULT_PASSWORD: dabdbf94edee40f287a569de
     volumes:
       - pgadmin_data:/var/lib/pgadmin
       - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
@@ -171,8 +172,30 @@ services:
     networks:
       - sts-backend
 
+  # ==========================================
+  # Nginx Gateway — Reverse Proxy (port 80)
+  # จัดการ route traffic ไปยัง service containers
+  # ที่ Jenkins deploy
+  # ==========================================
+  nginx_gateway:
+    image: nginx:alpine
+    container_name: nginx_gateway
+    restart: always
+    ports:
+      - "0.0.0.0:80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - nginx_upstream_data:/etc/nginx/upstream.d
+    depends_on:
+      - pgadmin
+      - headscale
+    networks:
+      - sts-backend
+
 volumes:
   postgres_uat_data:
   postgres_master_data:
   pgadmin_data:
   jenkins_data:
+  nginx_upstream_data:

@@ -16,3 +16,6 @@ Thumbs.db
 # Jenkins cloned repos (ignore all service repo dirs)
 /STS-*/
 /SCS-*/
+
+# Nginx auto-generated upstream configs
+/nginx/upstream.d/*.conf
