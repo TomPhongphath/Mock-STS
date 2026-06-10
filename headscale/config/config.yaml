@@ -1,5 +1,5 @@
 ---
-server_url: http://localhost:8080
+server_url: https://localhost:8080
 
 listen_addr: 0.0.0.0:8080
 
@@ -65,7 +65,7 @@ database:
     port: 5432
     name: STS
     user: userSTS
-    pass: S@mart@2024
+    pass: 058c55af16a8410eb1eb5e94f79d073be235
     max_open_conns: 10
     max_idle_conns: 10
     conn_max_idle_time_secs: 3600

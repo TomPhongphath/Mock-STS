@@ -1,38 +1,48 @@
-version: '3.8'
-
 networks:
   sts-frontend:
     driver: bridge
   sts-backend:
     driver: bridge
 
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  pgadmin_password:
+    file: ./secrets/pgadmin_password.txt
+  keycloak_password:
+    file: ./secrets/keycloak_password.txt
+
 services:
-  # 0. Container ��������͹�ԡ������鹢ͧ Headscale
+  # 0. Init container — inject password from secret into Headscale config
   headscale-init:
     image: alpine:latest
     container_name: headscale_init
     volumes:
       - ./headscale/config:/etc/headscale
       - ./headscale/config/config.headscale.yaml:/tmp/config.headscale.yaml:ro
+      - ./secrets/postgres_password.txt:/tmp/postgres_password.txt:ro
     command: >
       sh -c "
       if [ ! -f /etc/headscale/config.yaml ]; then
-        echo 'Copying pre-configured Headscale config...';
+        echo 'Init Headscale config...';
         cp /tmp/config.headscale.yaml /etc/headscale/config.yaml;
+        PGPASS=$$(cat /tmp/postgres_password.txt);
+        sed -i s/__PASSWORD_PLACEHOLDER__/$$PGPASS/g /etc/headscale/config.yaml;
+        echo 'Password injected successfully.';
       else
-        echo 'Config file already exists.';
+        echo 'Config already exists.';
       fi
       "
     networks:
       - sts-backend
 
-  # 1. Headscale Server Container
+  # 1. Headscale Server (bind localhost only)
   headscale:
     image: headscale/headscale:latest
     container_name: headscale
     restart: always
     ports:
-      - "${HS_PORT:-8080}:8080"
+      - "127.0.0.1::8080"
     volumes:
       - ./headscale/config:/etc/headscale
       - ./headscale/data:/var/lib/headscale
@@ -46,62 +56,68 @@ services:
       - sts-frontend
       - sts-backend
 
-  # 2. PostgreSQL UAT (Port ��ҹ�͡ 5431)
+  # 2. PostgreSQL UAT (no external ports)
   postgres_uat:
     image: postgres:15-alpine
     container_name: postgres_uat
     restart: always
-    ports:
-      - "${PG_UAT_PORT:-5431}:5432"
+    expose:
+      - "5432"
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-STS}
-      POSTGRES_USER: ${POSTGRES_USER:-userSTS}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-S@mart@2024}
+      POSTGRES_DB: STS
+      POSTGRES_USER: userSTS
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
     volumes:
       - postgres_uat_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-userSTS} -d ${POSTGRES_DB:-STS}"]
+      test: ["CMD-SHELL", "pg_isready -U userSTS -d STS"]
       interval: 5s
       timeout: 5s
       retries: 5
+    secrets:
+      - postgres_password
     networks:
       - sts-backend
 
-  # 3. PostgreSQL MASTER (Port ��ҹ�͡ 5432)
+  # 3. PostgreSQL MASTER (no external ports)
   postgres_master:
     image: postgres:15-alpine
     container_name: postgres_master
     restart: always
-    ports:
-      - "${PG_MASTER_PORT:-5432}:5432"
+    expose:
+      - "5432"
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-STS}
-      POSTGRES_USER: ${POSTGRES_USER:-userSTS}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-S@mart@2024}
+      POSTGRES_DB: STS
+      POSTGRES_USER: userSTS
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
     volumes:
       - postgres_master_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-userSTS} -d ${POSTGRES_DB:-STS}"]
+      test: ["CMD-SHELL", "pg_isready -U userSTS -d STS"]
       interval: 5s
       timeout: 5s
       retries: 5
+    secrets:
+      - postgres_password
     networks:
       - sts-backend
 
-  # 4. pgAdmin Container
+  # 4. pgAdmin (uses Docker secrets for password)
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: pgadmin_web
     restart: always
     ports:
-      - "${PGADMIN_PORT:-5050}:80"
+      - "127.0.0.1:${PGADMIN_PORT:-5050}:80"
     environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@yourdomain.com}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-PgAdminSecurePass123!}
+      PGADMIN_DEFAULT_EMAIL: admin@yourdomain.com
+      PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/pgadmin_password
     volumes:
       - pgadmin_data:/var/lib/pgadmin
       - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
       - ./pgadmin/pgpass:/tmp/pgpass:ro
+    secrets:
+      - pgadmin_password
     depends_on:
       - postgres_uat
       - postgres_master
@@ -109,23 +125,26 @@ services:
       - sts-frontend
       - sts-backend
 
-  # 5. Keycloak Container (�� PostgreSQL MASTER �� backend)
+  # 5. Keycloak with PostgreSQL backend + Docker secrets
   keycloak_auth:
     image: quay.io/keycloak/keycloak:22.0
     container_name: keycloak_auth
     restart: always
     ports:
-      - "${KEYCLOAK_PORT:-8081}:8080"
+      - "127.0.0.1:${KEYCLOAK_HTTP_PORT:-8081}:8080"
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres_master:5432/STS
-      KC_DB_USERNAME: ${POSTGRES_USER:-userSTS}
-      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-S@mart@2024}
+      KC_DB_USERNAME: userSTS
+      KC_DB_PASSWORD: 058c55af16a8410eb1eb5e94f79d073be235
       KC_HOSTNAME: localhost
       KC_HTTP_ENABLED: "true"
-      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN_USER:-admin}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-KeycloakSecurePass123!}
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD_FILE: /run/secrets/keycloak_password
     command: start
+    secrets:
+      - postgres_password
+      - keycloak_password
     depends_on:
       postgres_master:
         condition: service_healthy

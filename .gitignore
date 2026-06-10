@@ -1,11 +1,15 @@
-# สกัดกั้นโฟลเดอร์ข้อมูลภายในของ Headscale
+# Secrets — ห้าม push ขึ้น GitHub โดยเด็ดขาด
+/secrets/
+/certs/
+
+# Headscale data
 /headscale/data/
 *.sqlite
 
-# สกัดกั้นไฟล์รหัสผ่าน pgpass เพื่อความปลอดภัยสูงสุดบน GitHub
+# pgAdmin password file
 /pgadmin/pgpass
 
-# OS & Environment Files
+# OS & Environment
 .env
 .DS_Store
 Thumbs.db
