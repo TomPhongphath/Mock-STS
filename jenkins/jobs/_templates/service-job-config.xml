@@ -61,7 +61,7 @@ REPO_LOCK_ROOT="/var/jenkins_home/repo-locks"
 REPO_LOCK_DIR=""
 
 compose() {
-  docker compose -p "${COMPOSE_PROJECT_NAME}" ${COMPOSE_FILES} "$@"
+  docker-compose -p "${COMPOSE_PROJECT_NAME}" ${COMPOSE_FILES} "$@"
 }
 
 needs_repo_lock() {
@@ -135,7 +135,7 @@ current_commit() {
 
 deploy_target() {
   if [ -n "${SERVICE_PORT}" ] &amp;&amp; [ "${SERVICE_PORT}" != "0" ]; then
-    compose up -d --build --no-deps -e PORT=${SERVICE_PORT} ${TARGET_SERVICE}
+    compose up -d --build --no-deps ${TARGET_SERVICE}
   else
     compose up -d --build --no-deps ${TARGET_SERVICE}
   fi
