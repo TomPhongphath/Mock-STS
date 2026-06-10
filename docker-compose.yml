@@ -13,7 +13,9 @@ secrets:
     file: ./secrets/keycloak_password.txt
 
 services:
-  # 0. Init container — inject password from secret into Headscale config
+  # ==========================================
+  # 0. Init Headscale config
+  # ==========================================
   headscale-init:
     image: alpine:latest
     container_name: headscale_init
@@ -36,13 +38,15 @@ services:
     networks:
       - sts-backend
 
-  # 1. Headscale Server (bind localhost only)
+  # ==========================================
+  # 1. Headscale Server (backend only via Nginx)
+  # ==========================================
   headscale:
     image: headscale/headscale:latest
     container_name: headscale
     restart: always
-    ports:
-      - "127.0.0.1::8080"
+    expose:
+      - "8080"
     volumes:
       - ./headscale/config:/etc/headscale
       - ./headscale/data:/var/lib/headscale
@@ -56,7 +60,9 @@ services:
       - sts-frontend
       - sts-backend
 
-  # 2. PostgreSQL UAT (no external ports)
+  # ==========================================
+  # 2. PostgreSQL UAT
+  # ==========================================
   postgres_uat:
     image: postgres:15-alpine
     container_name: postgres_uat
@@ -79,7 +85,9 @@ services:
     networks:
       - sts-backend
 
-  # 3. PostgreSQL MASTER (no external ports)
+  # ==========================================
+  # 3. PostgreSQL MASTER
+  # ==========================================
   postgres_master:
     image: postgres:15-alpine
     container_name: postgres_master
@@ -102,13 +110,15 @@ services:
     networks:
       - sts-backend
 
-  # 4. pgAdmin (uses Docker secrets for password)
+  # ==========================================
+  # 4. pgAdmin (via Nginx only)
+  # ==========================================
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: pgadmin_web
     restart: always
-    ports:
-      - "127.0.0.1:${PGADMIN_PORT:-5050}:80"
+    expose:
+      - "80"
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@yourdomain.com
       PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/pgadmin_password
@@ -125,13 +135,15 @@ services:
       - sts-frontend
       - sts-backend
 
-  # 5. Keycloak with PostgreSQL backend + Docker secrets
+  # ==========================================
+  # 5. Keycloak (via Nginx only)
+  # ==========================================
   keycloak_auth:
     image: quay.io/keycloak/keycloak:22.0
     container_name: keycloak_auth
     restart: always
-    ports:
-      - "127.0.0.1:${KEYCLOAK_HTTP_PORT:-8081}:8080"
+    expose:
+      - "8080"
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres_master:5432/STS
@@ -139,8 +151,9 @@ services:
       KC_DB_PASSWORD: 058c55af16a8410eb1eb5e94f79d073be235
       KC_HOSTNAME: localhost
       KC_HTTP_ENABLED: "true"
+      KC_PROXY: edge
       KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD_FILE: /run/secrets/keycloak_password
+      KEYCLOAK_ADMIN_PASSWORD: e19effbe4cac4e1aaf901af179a68a0312a7c3a1
     command: start
     secrets:
       - postgres_password
@@ -151,6 +164,51 @@ services:
     networks:
       - sts-frontend
       - sts-backend
+
+  # ==========================================
+  # 6. Nginx — TLS Gateway, Reverse Proxy
+  # ==========================================
+  nginx_gateway:
+    image: nginx:alpine
+    container_name: nginx_gateway
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./certbot/www:/var/www/certbot:ro
+    environment:
+      - SERVER_NAME=${SERVER_NAME:-localhost}
+    depends_on:
+      - headscale
+      - keycloak_auth
+      - pgadmin
+    networks:
+      - sts-frontend
+
+  # ==========================================
+  # 7. Certbot — Let's Encrypt Auto-renew
+  # ==========================================
+  certbot:
+    image: certbot/certbot:latest
+    container_name: certbot
+    restart: unless-stopped
+    volumes:
+      - ./certbot/www:/var/www/certbot
+      - ./certbot/conf:/etc/letsencrypt
+    entrypoint: >
+      sh -c "
+      trap exit TERM;
+      while :; do
+        certbot renew --webroot -w /var/www/certbot --quiet;
+        sleep 12h & wait $${!};
+      done
+      "
+    networks:
+      - sts-frontend
 
 volumes:
   postgres_uat_data:

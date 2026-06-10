@@ -2,6 +2,9 @@
 /secrets/
 /certs/
 
+# Nginx auto-generated SSL certs (self-signed)
+/nginx/ssl/
+
 # Headscale data
 /headscale/data/
 *.sqlite
