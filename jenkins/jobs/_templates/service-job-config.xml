@@ -126,6 +126,10 @@ service_not_mapped_message() {
 }
 
 current_commit() {
+  if [ ! -d "${REPO_DIR}/.git" ]; then
+    echo "unknown"
+    return 0
+  fi
   git -C "${REPO_DIR}" rev-parse HEAD
 }
 
@@ -145,8 +149,8 @@ ensure_repo_for_action() {
   fi
 
   rc=$?
-  if [ "${rc}" -eq 10 ] &amp;&amp; [ "${ACTION}" = "auto" ]; then
-    echo "No ${TARGET_BRANCH} branch for ${REPO_DIR}; skip auto deploy."
+  if [ "${rc}" -eq 10 ]; then
+    echo "Branch ${TARGET_BRANCH} not found for ${REPO_DIR}; skip."
     exit 0
   fi
 
