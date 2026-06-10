@@ -32,7 +32,12 @@ def deleteJobIfExists = { String jobName ->
 // Remove legacy single orchestrator job to keep Jenkins as per-service layout
 deleteJobIfExists("Mock-STS-Freestyle-CI-CD")
 
-// Seed per-service freestyle jobs (10 services)
+// Remove jobs for retired services
+deleteJobIfExists("sts-portal-MASTER")
+deleteJobIfExists("sts-portal-UAT")
+deleteJobIfExists("sts-portal-Freestyle-CI-CD")
+
+// Seed per-service freestyle jobs (9 services)
 def serviceTemplateFile = new File("/opt/jenkins-job-templates/_templates/service-job-config.xml")
 if (!serviceTemplateFile.exists()) {
     println("[seed-freestyle-job] Service template not found: ${serviceTemplateFile.absolutePath}")
@@ -51,7 +56,6 @@ def services = [
     [repo: "STS-MASTER", owner: "TomPhongphath", master: "sts-master-master", uat: "sts-master-uat", hasCompose: true],
     [repo: "STS-NOC", owner: "TomPhongphath", master: "sts-noc-master", uat: "sts-noc-uat", hasCompose: true],
     [repo: "SCS-TELEPORT", owner: "TomPhongphath", master: "sts-teleport-master", uat: "sts-teleport-uat", hasCompose: true],
-    [repo: "sts-portal", owner: "TomPhongphath", master: "sts-portal-master", uat: "sts-portal-uat", hasCompose: true],
 ]
 
 services.each { service ->
@@ -77,6 +81,7 @@ services.each { service ->
             .replace("__TARGET_BRANCH__", spec.branch as String)
             .replace("__TARGET_SERVICE__", spec.target ?: "")
             .replace("__HAS_COMPOSE_SERVICE__", hasComposeForEnv.toString())
+            .replace("__SERVICE_PORT__", "80")
 
         upsertFromXml(jobName, xml)
     }

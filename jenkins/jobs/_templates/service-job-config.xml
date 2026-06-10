@@ -48,6 +48,7 @@ REPO_OWNER="__REPO_OWNER__"
 TARGET_ENV="__TARGET_ENV__"
 TARGET_BRANCH="__TARGET_BRANCH__"
 TARGET_SERVICE="__TARGET_SERVICE__"
+SERVICE_PORT="__SERVICE_PORT__"
 HAS_COMPOSE_SERVICE="__HAS_COMPOSE_SERVICE__"
 COMPOSE_FILES="-f docker-compose.yml"
 COMPOSE_PROJECT_NAME="mock-sts"
@@ -126,7 +127,11 @@ current_commit() {
 }
 
 deploy_target() {
-  compose up -d --build --no-deps ${TARGET_SERVICE}
+  if [ -n "${SERVICE_PORT}" ] &amp;&amp; [ "${SERVICE_PORT}" != "0" ]; then
+    compose up -d --build --no-deps -e PORT=${SERVICE_PORT} ${TARGET_SERVICE}
+  else
+    compose up -d --build --no-deps ${TARGET_SERVICE}
+  fi
   compose ps ${TARGET_SERVICE}
 }
 
