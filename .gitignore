@@ -1,9 +1,5 @@
 # Secrets — ห้าม push ขึ้น GitHub โดยเด็ดขาด
 /secrets/
-/certs/
-
-# Nginx auto-generated SSL certs (self-signed)
-/nginx/ssl/
 
 # Headscale data
 /headscale/data/

@@ -1,5 +1,5 @@
 ---
-server_url: https://localhost/headscale
+server_url: http://localhost:8080
 
 listen_addr: 0.0.0.0:8080
 

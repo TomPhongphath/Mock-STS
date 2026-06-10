@@ -1,6 +1,4 @@
 networks:
-  sts-frontend:
-    driver: bridge
   sts-backend:
     driver: bridge
 
@@ -9,12 +7,10 @@ secrets:
     file: ./secrets/postgres_password.txt
   pgadmin_password:
     file: ./secrets/pgadmin_password.txt
-  keycloak_password:
-    file: ./secrets/keycloak_password.txt
 
 services:
   # ==========================================
-  # 0. Init Headscale config
+  # Init Headscale config
   # ==========================================
   headscale-init:
     image: alpine:latest
@@ -39,14 +35,14 @@ services:
       - sts-backend
 
   # ==========================================
-  # 1. Headscale Server (backend only via Nginx)
+  # Headscale Server — Mesh VPN Control Plane
   # ==========================================
   headscale:
     image: headscale/headscale:latest
     container_name: headscale
     restart: always
-    expose:
-      - "8080"
+    ports:
+      - "0.0.0.0:${HS_PORT:-8080}:8080"
     volumes:
       - ./headscale/config:/etc/headscale
       - ./headscale/data:/var/lib/headscale
@@ -57,18 +53,17 @@ services:
       postgres_uat:
         condition: service_healthy
     networks:
-      - sts-frontend
       - sts-backend
 
   # ==========================================
-  # 2. PostgreSQL UAT
+  # PostgreSQL UAT
   # ==========================================
   postgres_uat:
     image: postgres:15-alpine
     container_name: postgres_uat
     restart: always
-    expose:
-      - "5432"
+    ports:
+      - "127.0.0.1:${PG_UAT_PORT:-5431}:5432"
     environment:
       POSTGRES_DB: STS
       POSTGRES_USER: userSTS
@@ -86,14 +81,14 @@ services:
       - sts-backend
 
   # ==========================================
-  # 3. PostgreSQL MASTER
+  # PostgreSQL MASTER
   # ==========================================
   postgres_master:
     image: postgres:15-alpine
     container_name: postgres_master
     restart: always
-    expose:
-      - "5432"
+    ports:
+      - "127.0.0.1:${PG_MASTER_PORT:-5433}:5432"
     environment:
       POSTGRES_DB: STS
       POSTGRES_USER: userSTS
@@ -111,16 +106,16 @@ services:
       - sts-backend
 
   # ==========================================
-  # 4. pgAdmin (via Nginx only)
+  # pgAdmin — Web UI สำหรับจัดการ DB
   # ==========================================
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: pgadmin_web
     restart: always
-    expose:
-      - "80"
+    ports:
+      - "${PGADMIN_BIND_IP:-0.0.0.0}:${PGADMIN_PORT:-5050}:80"
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@yourdomain.com
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@yourdomain.com}
       PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/pgadmin_password
     volumes:
       - pgadmin_data:/var/lib/pgadmin
@@ -132,83 +127,7 @@ services:
       - postgres_uat
       - postgres_master
     networks:
-      - sts-frontend
       - sts-backend
-
-  # ==========================================
-  # 5. Keycloak (via Nginx only)
-  # ==========================================
-  keycloak_auth:
-    image: quay.io/keycloak/keycloak:22.0
-    container_name: keycloak_auth
-    restart: always
-    expose:
-      - "8080"
-    environment:
-      KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://postgres_master:5432/STS
-      KC_DB_USERNAME: userSTS
-      KC_DB_PASSWORD: 058c55af16a8410eb1eb5e94f79d073be235
-      KC_HOSTNAME: localhost
-      KC_HTTP_ENABLED: "true"
-      KC_PROXY: edge
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: e19effbe4cac4e1aaf901af179a68a0312a7c3a1
-    command: start
-    secrets:
-      - postgres_password
-      - keycloak_password
-    depends_on:
-      postgres_master:
-        condition: service_healthy
-    networks:
-      - sts-frontend
-      - sts-backend
-
-  # ==========================================
-  # 6. Nginx — TLS Gateway, Reverse Proxy
-  # ==========================================
-  nginx_gateway:
-    image: nginx:alpine
-    container_name: nginx_gateway
-    restart: always
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/conf.d:/etc/nginx/conf.d:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
-      - ./certbot/www:/var/www/certbot:ro
-    environment:
-      - SERVER_NAME=${SERVER_NAME:-localhost}
-    depends_on:
-      - headscale
-      - keycloak_auth
-      - pgadmin
-    networks:
-      - sts-frontend
-
-  # ==========================================
-  # 7. Certbot — Let's Encrypt Auto-renew
-  # ==========================================
-  certbot:
-    image: certbot/certbot:latest
-    container_name: certbot
-    restart: unless-stopped
-    volumes:
-      - ./certbot/www:/var/www/certbot
-      - ./certbot/conf:/etc/letsencrypt
-    entrypoint: >
-      sh -c "
-      trap exit TERM;
-      while :; do
-        certbot renew --webroot -w /var/www/certbot --quiet;
-        sleep 12h & wait $${!};
-      done
-      "
-    networks:
-      - sts-frontend
 
 volumes:
   postgres_uat_data:
