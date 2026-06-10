@@ -7,7 +7,7 @@ networks:
     driver: bridge
 
 services:
-  # 0. Container เตรียมไฟล์คอนฟิกเริ่มต้นของ Headscale
+  # 0. Container ��������͹�ԡ������鹢ͧ Headscale
   headscale-init:
     image: alpine:latest
     container_name: headscale_init
@@ -36,7 +36,7 @@ services:
     volumes:
       - ./headscale/config:/etc/headscale
       - ./headscale/data:/var/lib/headscale
-    command: headscale serve
+    command: serve
     depends_on:
       headscale-init:
         condition: service_completed_successfully
@@ -46,7 +46,7 @@ services:
       - sts-frontend
       - sts-backend
 
-  # 2. PostgreSQL UAT (Port ด้านนอก 5431)
+  # 2. PostgreSQL UAT (Port ��ҹ�͡ 5431)
   postgres_uat:
     image: postgres:15-alpine
     container_name: postgres_uat
@@ -67,7 +67,7 @@ services:
     networks:
       - sts-backend
 
-  # 3. PostgreSQL MASTER (Port ด้านนอก 5432)
+  # 3. PostgreSQL MASTER (Port ��ҹ�͡ 5432)
   postgres_master:
     image: postgres:15-alpine
     container_name: postgres_master
@@ -109,7 +109,7 @@ services:
       - sts-frontend
       - sts-backend
 
-  # 5. Keycloak Container (ใช้ PostgreSQL MASTER เป็น backend)
+  # 5. Keycloak Container (�� PostgreSQL MASTER �� backend)
   keycloak_auth:
     image: quay.io/keycloak/keycloak:22.0
     container_name: keycloak_auth
@@ -118,15 +118,14 @@ services:
       - "${KEYCLOAK_PORT:-8081}:8080"
     environment:
       KC_DB: postgres
-      KC_DB_URL_HOST: postgres_master
-      KC_DB_URL_DATABASE: STS
+      KC_DB_URL: jdbc:postgresql://postgres_master:5432/STS
       KC_DB_USERNAME: ${POSTGRES_USER:-userSTS}
       KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-S@mart@2024}
       KC_HOSTNAME: localhost
       KC_HTTP_ENABLED: "true"
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN_USER:-admin}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-KeycloakSecurePass123!}
-    command: start --optimized
+    command: start
     depends_on:
       postgres_master:
         condition: service_healthy
