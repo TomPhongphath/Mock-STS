@@ -2,6 +2,9 @@
 /headscale/data/
 *.sqlite
 
+# pgAdmin password file
+/pgadmin/pgpass
+
 # OS & Environment
 .env
 .DS_Store
@@ -14,4 +17,5 @@ Thumbs.db
 
 # Persistent data directories
 /data/
+/backups/
 /prometheus/data/
