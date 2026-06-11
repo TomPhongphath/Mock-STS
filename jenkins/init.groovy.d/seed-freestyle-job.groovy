@@ -1,18 +1,24 @@
 import jenkins.model.Jenkins
 import java.io.ByteArrayInputStream
+import javax.xml.transform.stream.StreamSource
 
 def jenkins = Jenkins.instance
 
 def upsertFromXml = { String jobName, String xml ->
     def existing = jenkins.getItem(jobName)
-    if (existing != null) {
-        existing.delete()
-        println("[seed-freestyle-job] Deleted job for re-seed: ${jobName}")
+    def bytes = xml.getBytes("UTF-8")
+    if (existing == null) {
+        new ByteArrayInputStream(bytes).withStream { stream ->
+            jenkins.createProjectFromXML(jobName, stream)
+        }
+        println("[seed-freestyle-job] Created job: ${jobName}")
+    } else {
+        new ByteArrayInputStream(bytes).withStream { stream ->
+            existing.updateByXml(new StreamSource(stream))
+        }
+        existing.save()
+        println("[seed-freestyle-job] Updated job: ${jobName}")
     }
-    new ByteArrayInputStream(xml.getBytes("UTF-8")).withStream { stream ->
-        jenkins.createProjectFromXML(jobName, stream)
-    }
-    println("[seed-freestyle-job] Created job: ${jobName}")
 }
 
 def deleteJobIfExists = { String jobName ->
@@ -26,12 +32,7 @@ def deleteJobIfExists = { String jobName ->
 // Remove legacy single orchestrator job to keep Jenkins as per-service layout
 deleteJobIfExists("Mock-STS-Freestyle-CI-CD")
 
-// Remove jobs for retired services
-deleteJobIfExists("sts-portal-MASTER")
-deleteJobIfExists("sts-portal-UAT")
-deleteJobIfExists("sts-portal-Freestyle-CI-CD")
-
-// Seed per-service freestyle jobs (9 services)
+// Seed per-service freestyle jobs (10 services)
 def serviceTemplateFile = new File("/opt/jenkins-job-templates/_templates/service-job-config.xml")
 if (!serviceTemplateFile.exists()) {
     println("[seed-freestyle-job] Service template not found: ${serviceTemplateFile.absolutePath}")
@@ -50,6 +51,7 @@ def services = [
     [repo: "STS-MASTER", owner: "TomPhongphath", master: "sts-master-master", uat: "sts-master-uat", hasCompose: true],
     [repo: "STS-NOC", owner: "TomPhongphath", master: "sts-noc-master", uat: "sts-noc-uat", hasCompose: true],
     [repo: "SCS-TELEPORT", owner: "TomPhongphath", master: "sts-teleport-master", uat: "sts-teleport-uat", hasCompose: true],
+    [repo: "sts-portal", owner: "TomPhongphath", master: "sts-portal-master", uat: "sts-portal-uat", hasCompose: true],
 ]
 
 services.each { service ->
@@ -67,20 +69,6 @@ services.each { service ->
         def jobName = "${service.repo}-${spec.env}"
         def description = "Freestyle CI/CD for ${service.repo} (${spec.env}, branch ${spec.branch}). ACTION=auto|sync|ci|start|restart|stop|status|logs"
 
-        // Build after Common is done first
-        def upstreamTriggerBlock = ""
-        if (service.repo != "STS-Common") {
-            def upstreamEnv = spec.env
-            upstreamTriggerBlock = """<hudson.triggers.BuildTrigger>
-  <specs>
-    <hudson.triggers.BuildTrigger_-BuildTriggerSpec>
-      <triggerName>STS-Common-${upstreamEnv}</triggerName>
-      <threshold>SUCCESS</threshold>
-    </hudson.triggers.BuildTrigger_-BuildTriggerSpec>
-  </specs>
-</hudson.triggers.BuildTrigger>"""
-        }
-
         def xml = serviceTemplate
             .replace("__JOB_DESCRIPTION__", description)
             .replace("__REPO_DIR__", service.repo as String)
@@ -89,8 +77,6 @@ services.each { service ->
             .replace("__TARGET_BRANCH__", spec.branch as String)
             .replace("__TARGET_SERVICE__", spec.target ?: "")
             .replace("__HAS_COMPOSE_SERVICE__", hasComposeForEnv.toString())
-            .replace("__SERVICE_PORT__", "80")
-            .replace("__UPSTREAM_TRIGGERS__", upstreamTriggerBlock)
 
         upsertFromXml(jobName, xml)
     }

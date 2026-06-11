@@ -1,6 +1,3 @@
-# Secrets — ห้าม push ขึ้น GitHub โดยเด็ดขาด
-/secrets/
-
 # Headscale data
 /headscale/data/
 *.sqlite
@@ -16,6 +13,12 @@ Thumbs.db
 # Jenkins cloned repos (ignore all service repo dirs)
 /STS-*/
 /SCS-*/
+/sts-portal/
 
-# Nginx auto-generated upstream configs
-/nginx/upstream.d/*.conf
+# Persistent data directories
+/data/
+/backups/
+/prometheus/data/
+/.kilo
+/.kilo
+/.kilo

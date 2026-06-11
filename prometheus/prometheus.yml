@@ -1,0 +1,178 @@
+global:
+  scrape_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - localhost:9090
+
+  - job_name: blackbox-exporter
+    static_configs:
+      - targets:
+          - blackbox-exporter:9115
+
+  - job_name: jenkins-jobs-master
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://jenkins:8080/job/SCS-TELEPORT-MASTER/api/json
+          - http://jenkins:8080/job/STS-ADM-MASTER/api/json
+          - http://jenkins:8080/job/STS-ALERT-MASTER/api/json
+          - http://jenkins:8080/job/STS-Common-MASTER/api/json
+          - http://jenkins:8080/job/STS-DASHBOARD-MASTER/api/json
+          - http://jenkins:8080/job/STS-INSTALL-MASTER/api/json
+          - http://jenkins:8080/job/STS-INVENTORY-CONTROL-MASTER/api/json
+          - http://jenkins:8080/job/STS-MASTER-MASTER/api/json
+          - http://jenkins:8080/job/STS-NOC-MASTER/api/json
+          - http://jenkins:8080/job/sts-portal-MASTER/api/json
+        labels:
+          env: master
+          monitor_type: jenkins_job
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+      - source_labels: [__param_target]
+        target_label: instance
+      - source_labels: [__param_target]
+        regex: .*/job/([^/]+)/api/json
+        target_label: jenkins_job
+        replacement: $1
+
+  - job_name: jenkins-jobs-uat
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://jenkins:8080/job/SCS-TELEPORT-UAT/api/json
+          - http://jenkins:8080/job/STS-ADM-UAT/api/json
+          - http://jenkins:8080/job/STS-ALERT-UAT/api/json
+          - http://jenkins:8080/job/STS-Common-UAT/api/json
+          - http://jenkins:8080/job/STS-DASHBOARD-UAT/api/json
+          - http://jenkins:8080/job/STS-INSTALL-UAT/api/json
+          - http://jenkins:8080/job/STS-INVENTORY-CONTROL-UAT/api/json
+          - http://jenkins:8080/job/STS-MASTER-UAT/api/json
+          - http://jenkins:8080/job/STS-NOC-UAT/api/json
+          - http://jenkins:8080/job/sts-portal-UAT/api/json
+        labels:
+          env: uat
+          monitor_type: jenkins_job
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+      - source_labels: [__param_target]
+        target_label: instance
+      - source_labels: [__param_target]
+        regex: .*/job/([^/]+)/api/json
+        target_label: jenkins_job
+        replacement: $1
+
+  - job_name: database-tcp
+    metrics_path: /probe
+    params:
+      module: [tcp_connect]
+    static_configs:
+      - targets:
+          - postgres_master:5432
+          - postgres_uat:5432
+        labels:
+          monitor_type: database
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+      - source_labels: [__param_target]
+        target_label: instance
+      - source_labels: [__param_target]
+        regex: postgres_(.*):5432
+        target_label: env
+        replacement: $1
+      - source_labels: [__param_target]
+        regex: (postgres_[^:]+):5432
+        target_label: db_name
+        replacement: $1
+
+  - job_name: application-http
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://nginx-master:80/app/api/ping
+          - http://nginx-uat:80/api/ping
+        labels:
+          monitor_type: application
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+      - source_labels: [__param_target]
+        target_label: instance
+      - source_labels: [__param_target]
+        regex: http://nginx-(.*?):.*
+        target_label: env
+        replacement: $1
+
+  - job_name: nginx-master
+    static_configs:
+      - targets:
+          - nginx-exporter-master:9113
+        labels:
+          env: master
+          monitor_type: edge
+
+  - job_name: nginx-uat
+    static_configs:
+      - targets:
+          - nginx-exporter-uat:9113
+        labels:
+          env: uat
+          monitor_type: edge
+
+  - job_name: postgres-exporter-master
+    static_configs:
+      - targets:
+          - postgres-exporter-master:9187
+        labels:
+          env: master
+          monitor_type: database_metrics
+
+  - job_name: postgres-exporter-uat
+    static_configs:
+      - targets:
+          - postgres-exporter-uat:9187
+        labels:
+          env: uat
+          monitor_type: database_metrics
+
+  - job_name: cadvisor
+    static_configs:
+      - targets:
+          - cadvisor:8080
+        labels:
+          monitor_type: container_metrics
+
+  - job_name: backup-health
+    static_configs:
+      - targets:
+          - backup-textfile-exporter:9100
+        labels:
+          monitor_type: backup
