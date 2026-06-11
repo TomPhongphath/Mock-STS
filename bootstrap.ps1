@@ -20,9 +20,7 @@ $repositories = @(
 )
 
 $persistentDirectories = @(
-    "data\pgdata_master",
-    "data\pgdata_uat",
-    "backups"
+    "data"
 )
 
 function Ensure-Repository {

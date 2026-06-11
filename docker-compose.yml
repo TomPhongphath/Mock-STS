@@ -12,16 +12,12 @@ services:
     volumes:
       - ./headscale/config:/etc/headscale
       - ./headscale/config/config.headscale.yaml:/tmp/config.headscale.yaml:ro
-    environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
     command: >
       sh -c "
       if [ ! -f /etc/headscale/config.yaml ]; then
         echo 'Init Headscale config...';
         cp /tmp/config.headscale.yaml /etc/headscale/config.yaml;
-        PGPASS=$${POSTGRES_PASSWORD};
-        sed -i s/__PASSWORD_PLACEHOLDER__/$$PGPASS/g /etc/headscale/config.yaml;
-        echo 'Password injected successfully.';
+        echo 'Config initialized with SQLite backend.';
       else
         echo 'Config already exists.';
       fi
@@ -45,108 +41,6 @@ services:
     depends_on:
       headscale-init:
         condition: service_completed_successfully
-      postgres_uat:
-        condition: service_healthy
-    networks:
-      - sts-net
-
-  # ==========================================
-  # PostgreSQL UAT
-  # ==========================================
-  postgres_uat:
-    image: postgres:17-alpine
-    container_name: postgres_uat
-    restart: always
-    ports:
-      - "127.0.0.1:${PG_UAT_PORT:-5433}:5432"
-    environment:
-      POSTGRES_DB: STS
-      POSTGRES_USER: userSTS
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
-    volumes:
-      - ./data/pgdata_uat:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U userSTS -d STS"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    networks:
-      - sts-net
-
-  # ==========================================
-  # PostgreSQL MASTER
-  # ==========================================
-  postgres_master:
-    image: postgres:17-alpine
-    container_name: postgres_master
-    restart: always
-    ports:
-      - "127.0.0.1:${PG_MASTER_PORT:-5432}:5432"
-    environment:
-      POSTGRES_DB: STS
-      POSTGRES_USER: userSTS
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
-    volumes:
-      - ./data/pgdata_master:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U userSTS -d STS"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    networks:
-      - sts-net
-
-  # ==========================================
-  # PostgreSQL Exporters (Prometheus)
-  # ==========================================
-  postgres-exporter-master:
-    image: prometheuscommunity/postgres-exporter:latest
-    container_name: sts-postgres-exporter-master
-    depends_on:
-      postgres_master:
-        condition: service_healthy
-    environment:
-      DATA_SOURCE_URI: postgres_master:5432/STS?sslmode=disable
-      DATA_SOURCE_USER: userSTS
-      DATA_SOURCE_PASS: ${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
-    networks:
-      - sts-net
-    restart: unless-stopped
-
-  postgres-exporter-uat:
-    image: prometheuscommunity/postgres-exporter:latest
-    container_name: sts-postgres-exporter-uat
-    depends_on:
-      postgres_uat:
-        condition: service_healthy
-    environment:
-      DATA_SOURCE_URI: postgres_uat:5432/STS?sslmode=disable
-      DATA_SOURCE_USER: userSTS
-      DATA_SOURCE_PASS: ${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
-    networks:
-      - sts-net
-    restart: unless-stopped
-
-  # ==========================================
-  # pgAdmin — Web UI สำหรับจัดการ DB
-  # ==========================================
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: pgadmin_web
-    restart: always
-    ports:
-      - "${PGADMIN_BIND_IP:-0.0.0.0}:${PGADMIN_PORT:-5050}:80"
-    environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@yourdomain.com}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-PgAdminSecurePass123!}
-      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin
-      - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
-      - ./pgadmin/pgpass:/tmp/pgpass:ro
-    depends_on:
-      - postgres_uat
-      - postgres_master
     networks:
       - sts-net
 
@@ -161,9 +55,6 @@ services:
         PROJECT_PATH: STS-NOC
         CSPROJ_FILE: NOC.csproj
     container_name: sts-noc-master
-    depends_on:
-      postgres_master:
-        condition: service_healthy
     environment:
       - ConnectionStrings__ConnString=Host=postgres_master;Port=5432;Database=STS;User Id=userSTS;Password=${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
       - Jwt__Issuer=http://sts-adm-master:80
@@ -180,9 +71,6 @@ services:
         PROJECT_PATH: STS-ALERT
         CSPROJ_FILE: STS-ALERT.csproj
     container_name: sts-alert-master
-    depends_on:
-      postgres_master:
-        condition: service_healthy
     environment:
       - ConnectionStrings__ConnString=Host=postgres_master;Port=5432;Database=STS;User Id=userSTS;Password=${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
       - Jwt__Issuer=http://sts-adm-master:80
@@ -199,9 +87,6 @@ services:
         PROJECT_PATH: SCS-TELEPORT
         CSPROJ_FILE: Teleport/Teleport.csproj
     container_name: sts-teleport-master
-    depends_on:
-      postgres_master:
-        condition: service_healthy
     environment:
       - ConnectionStrings__ConnString=Host=postgres_master;Port=5432;Database=STS;User Id=userSTS;Password=${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
       - Jwt__Issuer=http://sts-adm-master:80
@@ -218,9 +103,6 @@ services:
         PROJECT_PATH: STS-DASHBOARD
         CSPROJ_FILE: STS-DASHBOARD.csproj
     container_name: sts-dashboard-master
-    depends_on:
-      postgres_master:
-        condition: service_healthy
     environment:
       - ConnectionStrings__ConnString=Host=postgres_master;Port=5432;Database=STS;User Id=userSTS;Password=${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
       - Jwt__Issuer=http://sts-adm-master:80
@@ -238,9 +120,6 @@ services:
         PROJECT_PATH: STS-MASTER
         CSPROJ_FILE: Master.csproj
     container_name: sts-master-master
-    depends_on:
-      postgres_master:
-        condition: service_healthy
     environment:
       - ConnectionStrings__ConnString=Host=postgres_master;Port=5432;Database=STS;User Id=userSTS;Password=${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
       - Jwt__Issuer=http://sts-adm-master:80
@@ -257,9 +136,6 @@ services:
         PROJECT_PATH: STS-ADM
         CSPROJ_FILE: ADM.csproj
     container_name: sts-adm-master
-    depends_on:
-      postgres_master:
-        condition: service_healthy
     environment:
       - ConnectionStrings__ConnString=Host=postgres_master;Port=5432;Database=STS;User Id=userSTS;Password=${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
       - Jwt__Key=a-string-secret-at-least-256-bits-long
@@ -278,9 +154,6 @@ services:
         PROJECT_PATH: STS-INSTALL
         CSPROJ_FILE: Install.csproj
     container_name: sts-install-master
-    depends_on:
-      postgres_master:
-        condition: service_healthy
     environment:
       - ConnectionStrings__ConnString=Host=postgres_master;Port=5432;Database=STS;User Id=userSTS;Password=${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
       - Jwt__Issuer=http://sts-adm-master:80
@@ -299,9 +172,6 @@ services:
         PROJECT_PATH: STS-INVENTORY-CONTROL/IC
         CSPROJ_FILE: IC.csproj
     container_name: sts-ic-master
-    depends_on:
-      postgres_master:
-        condition: service_healthy
     environment:
       - ConnectionStrings__ConnString=Host=postgres_master;Port=5432;Database=STS;User Id=userSTS;Password=${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
       - Jwt__Issuer=http://sts-adm-master:80
@@ -321,9 +191,6 @@ services:
         PROJECT_PATH: STS-NOC
         CSPROJ_FILE: NOC.csproj
     container_name: sts-noc-uat
-    depends_on:
-      postgres_uat:
-        condition: service_healthy
     environment:
       - ConnectionStrings__ConnString=Host=postgres_uat;Port=5432;Database=STS;User Id=userSTS;Password=${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
       - Jwt__Issuer=http://sts-adm-uat:80
@@ -340,9 +207,6 @@ services:
         PROJECT_PATH: STS-ALERT
         CSPROJ_FILE: STS-ALERT.csproj
     container_name: sts-alert-uat
-    depends_on:
-      postgres_uat:
-        condition: service_healthy
     environment:
       - ConnectionStrings__ConnString=Host=postgres_uat;Port=5432;Database=STS;User Id=userSTS;Password=${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
       - Jwt__Issuer=http://sts-adm-uat:80
@@ -359,9 +223,6 @@ services:
         PROJECT_PATH: SCS-TELEPORT
         CSPROJ_FILE: Teleport/Teleport.csproj
     container_name: sts-teleport-uat
-    depends_on:
-      postgres_uat:
-        condition: service_healthy
     environment:
       - ConnectionStrings__ConnString=Host=postgres_uat;Port=5432;Database=STS;User Id=userSTS;Password=${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
       - Jwt__Issuer=http://sts-adm-uat:80
@@ -378,9 +239,6 @@ services:
         PROJECT_PATH: STS-DASHBOARD
         CSPROJ_FILE: STS-DASHBOARD.csproj
     container_name: sts-dashboard-uat
-    depends_on:
-      postgres_uat:
-        condition: service_healthy
     environment:
       - ConnectionStrings__ConnString=Host=postgres_uat;Port=5432;Database=STS;User Id=userSTS;Password=${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
       - Jwt__Issuer=http://sts-adm-uat:80
@@ -398,9 +256,6 @@ services:
         PROJECT_PATH: STS-MASTER
         CSPROJ_FILE: Master.csproj
     container_name: sts-master-uat
-    depends_on:
-      postgres_uat:
-        condition: service_healthy
     environment:
       - ConnectionStrings__ConnString=Host=postgres_uat;Port=5432;Database=STS;User Id=userSTS;Password=${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
       - Jwt__Issuer=http://sts-adm-uat:80
@@ -417,9 +272,6 @@ services:
         PROJECT_PATH: STS-ADM
         CSPROJ_FILE: ADM.csproj
     container_name: sts-adm-uat
-    depends_on:
-      postgres_uat:
-        condition: service_healthy
     environment:
       - ConnectionStrings__ConnString=Host=postgres_uat;Port=5432;Database=STS;User Id=userSTS;Password=${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
       - Jwt__Key=another-long-secret-key-for-uat-256-bits
@@ -438,9 +290,6 @@ services:
         PROJECT_PATH: STS-INSTALL
         CSPROJ_FILE: Install.csproj
     container_name: sts-install-uat
-    depends_on:
-      postgres_uat:
-        condition: service_healthy
     environment:
       - ConnectionStrings__ConnString=Host=postgres_uat;Port=5432;Database=STS;User Id=userSTS;Password=${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
       - Jwt__Issuer=http://sts-adm-uat:80
@@ -459,9 +308,6 @@ services:
         PROJECT_PATH: STS-INVENTORY-CONTROL/IC
         CSPROJ_FILE: IC.csproj
     container_name: sts-ic-uat
-    depends_on:
-      postgres_uat:
-        condition: service_healthy
     environment:
       - ConnectionStrings__ConnString=Host=postgres_uat;Port=5432;Database=STS;User Id=userSTS;Password=${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
       - Jwt__Issuer=http://sts-adm-uat:80
@@ -600,17 +446,6 @@ services:
       JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
       JENKINS_OPTS: "--prefix="
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
-      PG_UAT_HOST: postgres_uat
-      PG_UAT_PORT: 5432
-      PG_UAT_NAME: STS
-      PG_UAT_USER: userSTS
-      PG_UAT_PASS: ${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
-      PG_MASTER_HOST: postgres_master
-      PG_MASTER_PORT: 5432
-      PG_MASTER_NAME: STS
-      PG_MASTER_USER: userSTS
-      PG_MASTER_PASS: ${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
     volumes:
       - jenkins_data:/var/jenkins_home
       - ./jenkins/init.groovy.d:/usr/share/jenkins/ref/init.groovy.d:ro
@@ -618,9 +453,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${PWD}:/workspace
     user: root
-    depends_on:
-      - postgres_uat
-      - postgres_master
     networks:
       - sts-net
 
@@ -646,25 +478,6 @@ services:
       - sts-net
     restart: unless-stopped
 
-  # ==========================================
-  # Backup
-  # ==========================================
-  backup:
-    image: alpine:latest
-    container_name: sts-backup
-    volumes:
-      - ./backups:/backups
-      - ./backup/db-backup.sh:/scripts/db-backup.sh:ro
-      - ./backup/db-restore.sh:/scripts/db-restore.sh:ro
-      - ./backup/check-backup.sh:/scripts/check-backup.sh:ro
-      - D:/backup_DB_STS/lastbackup:/backup-source:ro
-    environment:
-      - ConnectionStrings__ConnString=Host=postgres_uat;Port=5432;Database=STS;User Id=userSTS;Password=${POSTGRES_PASSWORD:-058c55af16a8410eb1eb5e94f79d073be235}
-    networks:
-      - sts-net
-    restart: unless-stopped
-
 volumes:
-  pgadmin_data:
   jenkins_data:
   prometheus_data:

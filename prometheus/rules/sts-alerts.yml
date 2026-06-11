@@ -1,49 +1,11 @@
 groups:
   - name: sts-availability
     rules:
-      - alert: ProbeTargetDown
-        expr: probe_success{job=~"jenkins-jobs-master|jenkins-jobs-uat|database-tcp|application-http"} == 0
-        for: 2m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Probe target down ({{ $labels.job }})"
-          description: "Target {{ $labels.instance }} in {{ $labels.job }} is down."
-
       - alert: ExporterTargetDown
-        expr: up{job=~"postgres-exporter-master|postgres-exporter-uat|nginx-master|nginx-uat|cadvisor"} == 0
+        expr: up{job=~"nginx-master|nginx-uat|cadvisor"} == 0
         for: 2m
         labels:
           severity: warning
         annotations:
           summary: "Exporter down ({{ $labels.job }})"
           description: "Exporter target {{ $labels.instance }} in {{ $labels.job }} is not reachable."
-
-      - alert: PostgresConnectionsHigh
-        expr: sum by (datname, instance) (pg_stat_database_numbackends{datname="STS"}) > 120
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "High Postgres connections"
-          description: "Database {{ $labels.datname }} on {{ $labels.instance }} has high active connections ({{ $value }})."
-
-  - name: sts-backup
-    rules:
-      - alert: BackupNotRun
-        expr: sts_backup_ok == 0
-        for: 0m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Backup has not run within expected window ({{ $labels.type }})"
-          description: "The {{ $labels.type }} backup has not completed successfully in the last 25 hours. Check the backup container logs."
-
-      - alert: BackupMetricsMissing
-        expr: absent(sts_backup_ok)
-        for: 30m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Backup health metrics are missing"
-          description: "The sts_backup_ok metric is not being reported. The backup container may be down."

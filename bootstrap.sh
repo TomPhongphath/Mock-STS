@@ -53,13 +53,8 @@ ensure_repo "TomPhongphath" "sts-portal"
 
 echo "Ensuring persistent data directories ..."
 mkdir -p \
-  data/pgdata_master \
-  data/pgdata_uat \
   data/jenkins_home \
-  data/prometheus \
-  data/grafana \
-  data/loki \
-  backups
+  data/prometheus
 
 if [ ! -f ".env" ] && [ -f ".env.example" ]; then
   cp .env.example .env

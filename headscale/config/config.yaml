@@ -49,7 +49,7 @@ node:
       probe_timeout: 5s
 
 database:
-  type: postgres
+  type: sqlite
   debug: false
   gorm:
     prepare_stmt: true

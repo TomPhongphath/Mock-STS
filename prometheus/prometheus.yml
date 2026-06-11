@@ -83,32 +83,6 @@ scrape_configs:
         target_label: jenkins_job
         replacement: $1
 
-  - job_name: database-tcp
-    metrics_path: /probe
-    params:
-      module: [tcp_connect]
-    static_configs:
-      - targets:
-          - postgres_master:5432
-          - postgres_uat:5432
-        labels:
-          monitor_type: database
-    relabel_configs:
-      - source_labels: [__address__]
-        target_label: __param_target
-      - target_label: __address__
-        replacement: blackbox-exporter:9115
-      - source_labels: [__param_target]
-        target_label: instance
-      - source_labels: [__param_target]
-        regex: postgres_(.*):5432
-        target_label: env
-        replacement: $1
-      - source_labels: [__param_target]
-        regex: (postgres_[^:]+):5432
-        target_label: db_name
-        replacement: $1
-
   - job_name: application-http
     metrics_path: /probe
     params:
@@ -147,22 +121,6 @@ scrape_configs:
           env: uat
           monitor_type: edge
 
-  - job_name: postgres-exporter-master
-    static_configs:
-      - targets:
-          - postgres-exporter-master:9187
-        labels:
-          env: master
-          monitor_type: database_metrics
-
-  - job_name: postgres-exporter-uat
-    static_configs:
-      - targets:
-          - postgres-exporter-uat:9187
-        labels:
-          env: uat
-          monitor_type: database_metrics
-
   - job_name: cadvisor
     static_configs:
       - targets:
@@ -170,9 +128,4 @@ scrape_configs:
         labels:
           monitor_type: container_metrics
 
-  - job_name: backup-health
-    static_configs:
-      - targets:
-          - backup-textfile-exporter:9100
-        labels:
-          monitor_type: backup
+
