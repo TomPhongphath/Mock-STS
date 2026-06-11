@@ -1,0 +1,235 @@
+<?xml version='1.1' encoding='UTF-8'?>
+<project>
+  <actions/>
+  <description>__JOB_DESCRIPTION__</description>
+  <keepDependencies>false</keepDependencies>
+  <properties>
+    <hudson.model.ParametersDefinitionProperty>
+      <parameterDefinitions>
+        <hudson.model.ChoiceParameterDefinition>
+          <name>ACTION</name>
+          <description>Choose CI/CD action for this service.</description>
+          <choices class="java.util.Arrays$ArrayList">
+            <a class="string-array">
+              <string>auto</string>
+              <string>sync</string>
+              <string>ci</string>
+              <string>start</string>
+              <string>restart</string>
+              <string>stop</string>
+              <string>status</string>
+              <string>logs</string>
+            </a>
+          </choices>
+        </hudson.model.ChoiceParameterDefinition>
+      </parameterDefinitions>
+    </hudson.model.ParametersDefinitionProperty>
+  </properties>
+  <scm class="hudson.scm.NullSCM"/>
+  <canRoam>true</canRoam>
+  <disabled>false</disabled>
+  <blockBuildWhenDownstreamBuilding>false</blockBuildWhenDownstreamBuilding>
+  <blockBuildWhenUpstreamBuilding>false</blockBuildWhenUpstreamBuilding>
+  <triggers>
+    <hudson.triggers.TimerTrigger>
+      <spec>H/2 * * * *</spec>
+    </hudson.triggers.TimerTrigger>
+  </triggers>
+  <concurrentBuild>false</concurrentBuild>
+  <builders>
+    <hudson.tasks.Shell>
+      <command>#!/bin/bash
+set -euo pipefail
+
+cd /workspace
+
+REPO_DIR="__REPO_DIR__"
+REPO_OWNER="__REPO_OWNER__"
+TARGET_ENV="__TARGET_ENV__"
+TARGET_BRANCH="__TARGET_BRANCH__"
+TARGET_SERVICE="__TARGET_SERVICE__"
+HAS_COMPOSE_SERVICE="__HAS_COMPOSE_SERVICE__"
+COMPOSE_FILES="-f docker-compose.yml"
+COMPOSE_PROJECT_NAME="mock-sts"
+STATE_DIR="/var/jenkins_home/service-state"
+STATE_FILE="${STATE_DIR}/${REPO_DIR}-${TARGET_ENV}.sha"
+REPO_LOCK_ROOT="/var/jenkins_home/repo-locks"
+REPO_LOCK_DIR=""
+
+compose() {
+  docker compose -p "${COMPOSE_PROJECT_NAME}" ${COMPOSE_FILES} "$@"
+}
+
+needs_repo_lock() {
+  case "${ACTION}" in
+    auto|sync|ci|start) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+acquire_repo_lock() {
+  mkdir -p "${REPO_LOCK_ROOT}"
+  REPO_LOCK_DIR="${REPO_LOCK_ROOT}/${REPO_DIR}.lock"
+  while ! mkdir "${REPO_LOCK_DIR}" 2>/dev/null; do
+    echo "Waiting for repository lock: ${REPO_DIR}"
+    sleep 1
+  done
+}
+
+release_repo_lock() {
+  if [ -n "${REPO_LOCK_DIR}" ] &amp;&amp; [ -d "${REPO_LOCK_DIR}" ]; then
+    rmdir "${REPO_LOCK_DIR}" 2>/dev/null || :
+  fi
+}
+
+ensure_repo() {
+  if [ -d "${REPO_DIR}/.git" ]; then
+    if ! git -C "${REPO_DIR}" ls-remote --exit-code --heads origin "${TARGET_BRANCH}" &gt;/dev/null 2&gt;&amp;1; then
+      echo "WARN: Branch ${TARGET_BRANCH} not found on origin for ${REPO_DIR}; skipping."
+      return 10
+    fi
+
+    git -C "${REPO_DIR}" fetch origin "${TARGET_BRANCH}"
+    git -C "${REPO_DIR}" checkout -B "${TARGET_BRANCH}" "origin/${TARGET_BRANCH}"
+    return
+  fi
+
+  if [ -d "${REPO_DIR}" ] &amp;&amp; [ -n "$(ls -A "${REPO_DIR}" 2&gt;/dev/null)" ]; then
+    echo "ERROR: ${REPO_DIR} exists but is not a git repository."
+    exit 1
+  fi
+
+  if [ -d "${REPO_DIR}" ]; then
+    rmdir "${REPO_DIR}"
+  fi
+
+  if [ -z "${GITHUB_TOKEN:-}" ] || [ "${GITHUB_TOKEN}" = "your_token_here" ]; then
+    echo "ERROR: GITHUB_TOKEN is missing. Set it in compose env/.env."
+    exit 1
+  fi
+
+  REMOTE_URL="https://${GITHUB_TOKEN}@github.com/${REPO_OWNER}/${REPO_DIR}.git"
+  if ! git ls-remote --exit-code --heads "${REMOTE_URL}" "${TARGET_BRANCH}" &gt;/dev/null 2&gt;&amp;1; then
+    echo "WARN: Branch ${TARGET_BRANCH} not found on origin for ${REPO_DIR}; skipping."
+    return 10
+  fi
+
+  git clone --branch "${TARGET_BRANCH}" --single-branch "${REMOTE_URL}" "${REPO_DIR}"
+}
+
+service_not_mapped_message() {
+  echo "No compose service mapping for ${REPO_DIR} (${TARGET_ENV}) in this repository."
+}
+
+current_commit() {
+  git -C "${REPO_DIR}" rev-parse HEAD
+}
+
+deploy_target() {
+  compose up -d --build --no-deps ${TARGET_SERVICE}
+  compose ps ${TARGET_SERVICE}
+}
+
+ensure_repo_for_action() {
+  local rc
+  if ensure_repo; then
+    return 0
+  fi
+
+  rc=$?
+  if [ "${rc}" -eq 10 ] &amp;&amp; [ "${ACTION}" = "auto" ]; then
+    echo "No ${TARGET_BRANCH} branch for ${REPO_DIR}; skip auto deploy."
+    exit 0
+  fi
+
+  return "${rc}"
+}
+
+if needs_repo_lock; then
+  acquire_repo_lock
+  trap release_repo_lock EXIT
+fi
+
+case "${ACTION}" in
+  auto)
+    ensure_repo_for_action
+    mkdir -p "${STATE_DIR}"
+    COMMIT="$(current_commit)"
+    if [ -f "${STATE_FILE}" ] &amp;&amp; [ "$(cat "${STATE_FILE}")" = "${COMMIT}" ]; then
+      echo "No new commit for ${REPO_DIR} (${TARGET_ENV}); skip deploy."
+      exit 0
+    fi
+
+    if [ "${HAS_COMPOSE_SERVICE}" = "true" ]; then
+      deploy_target
+      echo "${COMMIT}" &gt; "${STATE_FILE}"
+      echo "Auto deploy complete for ${REPO_DIR} (${TARGET_ENV}) at ${COMMIT}."
+    else
+      service_not_mapped_message
+      echo "${COMMIT}" &gt; "${STATE_FILE}"
+    fi
+    ;;
+  sync)
+    ensure_repo_for_action
+    echo "Source sync complete for ${REPO_DIR}."
+    ;;
+  ci)
+    ensure_repo_for_action
+    if [ "${HAS_COMPOSE_SERVICE}" = "true" ]; then
+      compose build ${TARGET_SERVICE}
+      echo "CI build complete for ${REPO_DIR} (${TARGET_ENV})."
+    else
+      service_not_mapped_message
+    fi
+    ;;
+  start)
+    ensure_repo_for_action
+    if [ "${HAS_COMPOSE_SERVICE}" = "true" ]; then
+      deploy_target
+      mkdir -p "${STATE_DIR}"
+      current_commit &gt; "${STATE_FILE}"
+    else
+      service_not_mapped_message
+    fi
+    ;;
+  restart)
+    if [ "${HAS_COMPOSE_SERVICE}" = "true" ]; then
+      compose restart ${TARGET_SERVICE}
+      compose ps ${TARGET_SERVICE}
+    else
+      service_not_mapped_message
+    fi
+    ;;
+  stop)
+    if [ "${HAS_COMPOSE_SERVICE}" = "true" ]; then
+      compose stop ${TARGET_SERVICE}
+      compose ps ${TARGET_SERVICE}
+    else
+      service_not_mapped_message
+    fi
+    ;;
+  status)
+    if [ "${HAS_COMPOSE_SERVICE}" = "true" ]; then
+      compose ps ${TARGET_SERVICE}
+    else
+      service_not_mapped_message
+    fi
+    ;;
+  logs)
+    if [ "${HAS_COMPOSE_SERVICE}" = "true" ]; then
+      compose logs --tail=80 ${TARGET_SERVICE}
+    else
+      service_not_mapped_message
+    fi
+    ;;
+  *)
+    echo "Unknown ACTION=${ACTION}"
+    exit 1
+    ;;
+esac
+</command>
+    </hudson.tasks.Shell>
+  </builders>
+  <publishers/>
+  <buildWrappers/>
+</project>
