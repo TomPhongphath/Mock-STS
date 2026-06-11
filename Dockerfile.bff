@@ -1,9 +1,0 @@
-FROM node:18-alpine
-ARG BFF_TYPE
-WORKDIR /app
-COPY bff/package.json ./
-RUN npm install
-COPY bff/ ./
-EXPOSE 80
-ENV BFF_TYPE=${BFF_TYPE}
-CMD ["node", "server.js"]
